@@ -15,11 +15,6 @@ RANLIB= ranlib
 BUILD_CFLAGS =      -I$(LUA_INCLUDE_DIR) -I$(RAPIDXML_INCLUDE_DIR) $(LUA_RAPIDXML_CFLAGS)
 OBJS =              lrapidxml.o
 
-.PHONY: all clean test
-
-lrapidxml.o:  lrapidxml.cpp lrapidxml.hpp
-	$(CC) -c $(CPPFLAGS) $(BUILD_CFLAGS) -o $@ $<
-
 all: $(TARGET_SO) $(TARGET_A)
 
 $(TARGET_SO): $(OBJS)
@@ -29,8 +24,13 @@ $(TARGET_A): $(OBJS)
 	$(AR) $@ $(OBJS)
 	$(RANLIB) $@
 
+lrapidxml.o:  lrapidxml.cpp lrapidxml.hpp
+	$(CC) -c $(CPPFLAGS) $(BUILD_CFLAGS) -o $@ $<
+
 test:
 	lua test.lua
 
 clean:
 	rm -f *.o $(TARGET_SO) $(TARGET_A)
+
+.PHONY: all clean test
