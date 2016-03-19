@@ -40,7 +40,7 @@ end
 local xml_str = [==[
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <!--  Copyright w3school.com.cn -->
-<note>
+<note href = "www.baidu.com">
 	<to>George</to>
 	<from>John</from>
 	<heading>Reminder</heading>
@@ -53,14 +53,21 @@ local xml_str = [==[
   </article>
   <article>
     <p>Some <b>important</b> text.</p>
+    <p1>Some <b> very <b1>important</b1></b> text.</p1>
   </article>
 </document>]==]
 
--- <note ty = "1">123 <b a = "111">999</b> 000</note>
-local xml_tb = xml.decode( '<note ty = "1">123</note><note ty = "1">99876jdsfjds</note>' )
+local xml_test = [==[
+<note>
+	<to>George</to>
+	<from>John</from>
+	<heading>Reminder</heading>
+	<body>Don't forget the meeting!</body>
+</note>
+]==]
+local xml_tb = xml.decode( xml_str )
 vd( xml_tb )
-vd( xml_tb[1] )
-vd( getmetatable(xml_tb[1]) )
+vd( getmetatable(xml_tb[1]))
 
 -- 注意栈深度保护
 -- 检测元表是否已存在

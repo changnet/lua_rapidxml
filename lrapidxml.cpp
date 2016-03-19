@@ -5,71 +5,13 @@
 #include <rapidxml.hpp>
 #include "lrapidxml.hpp"
 
+#define MAX_STACK   1024
 #define MAX_MSG_LEN 256
 #define MARK_ERROR(x,what) snprintf( msg,MAX_MSG_LEN,"%s",what )
-
-typedef enum
-{
-    NONE  = 0,
-    K_V   = 1,    /* { k = v } */
-    K_VT  = 2,    /* { k = {} } */
-    K_V_T = 3    /* { {k = v} } */
-}k_v_t;
-
-inline int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg,int index );
-int decode_object_node( lua_State *L,rapidxml::xml_node<> *node,char *msg );
 
 void lua_rapidxml_error( lua_State *L,const char *msg )
 {
     luaL_error( L,msg );
-}
-
-int is_array( rapidxml::xml_node<> *node )
-{
-    int data_cnt = 0;
-    std::map< std::string,int > _key;
-    for (rapidxml::xml_node<> *child = node; child; child = child->next_sibling())
-    {
-        switch( child->type() )
-        {
-            if ( data_cnt ) return 1;
-
-            case rapidxml::node_element:
-            {
-                std::string k( child->name(),child->name_size() );
-                if ( _key.find( k ) != _key.end() )
-                    return 1;
-                else
-                    _key.insert( std::pair< std::string,int >(k,1) );
-            }break;
-            case rapidxml::node_data:
-                ++data_cnt;
-                if ( !_key.empty() ) return 1;
-                break;
-            case rapidxml::node_cdata:
-                ++data_cnt;
-                if ( !_key.empty() ) return 1;
-                break;
-            default : /* ignore others */ break;
-        }
-    }
-
-    assert( data_cnt <= 1 );
-    return 0;
-}
-
-k_v_t key_value_type( rapidxml::xml_node<> *node )
-{
-    assert( rapidxml::node_element == node->type() );
-
-    rapidxml::xml_node<> *sub_node = node->first_node();
-
-    if ( rapidxml::node_element == sub_node->type() || sub_node->next_sibling() )
-        return K_VT;
-
-    if ( node->first_attribute() ) return K_V_T;
-
-    return K_V;
 }
 
 int decode_attribute( lua_State *L,rapidxml::xml_node<> *node,int index )
@@ -94,69 +36,39 @@ int decode_attribute( lua_State *L,rapidxml::xml_node<> *node,int index )
     return 0;
 }
 
-int decode_array_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
+int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
 {
-    assert( rapidxml::node_element == node->type() );
-
+    int top = lua_gettop( L );
     lua_newtable( L );
-    int tb_index = lua_gettop( L );
 
     int index = 1;
     for ( rapidxml::xml_node<> *child = node; child; child = child->next_sibling() )
     {
-        lua_newtable( L );
-        switch ( child->type() )
+        assert( rapidxml::node_element == child->type() );
+
+        switch( child->type() )
         {
             case rapidxml::node_element:
             {
-                switch( key_value_type( child ) )
+                lua_createtable( L,0,2 );
+
+                lua_pushstring( L,"name" );
+                lua_pushlstring( L,child->name(),child->name_size() );
+                lua_rawset( L,-3 );
+
+                lua_pushstring( L,"value" );
+                if ( decode_node( L,child->first_node(),msg ) < 0 )
                 {
-                    case K_V:
-                    {
-                        /* Value contains text of first data node. */
-                        lua_pushlstring( L,child->name(),child->name_size() );
-                        lua_pushlstring( L,child->value(),child->value_size() );
-                        lua_rawset( L,tb_index + 1 );
-                    }break;
-                    case K_VT:
-                    {
-                        lua_pushlstring( L,child->value(),child->value_size() );
-                        rapidxml::xml_node<> *sub_node = child->first_node();
+                    lua_settop( L,top );
+                    return -1;
+                }
+                lua_rawset( L,-3 );
 
-                        int return_code = 0;
-                        if ( is_array( sub_node ) )
-                            return_code = decode_array_node( L,sub_node,msg );
-                        else
-                            return_code = decode_object_node( L,sub_node,msg );
-                        if ( return_code < 0 )
-                        {
-                            lua_pop( L,3 );
-                            return -1;
-                        }
-
-                        if ( decode_attribute( L,sub_node,lua_gettop(L) ) < 0 )
-                        {
-                            lua_pop( L,4 );
-                            return -1;
-                        }
-                        lua_rawset( L,tb_index + 1 );
-                    }break;
-                    case K_V_T:
-                    {
-                        lua_pushlstring( L,child->name(),child->name_size() );
-                        lua_pushlstring( L,child->value(),child->value_size() );
-
-                        if ( decode_attribute( L,child,index ) < 0 )
-                        {
-                            MARK_ERROR( msg,"decode K_V_T attribute error" );
-                            lua_pop( L,2 );
-                            return -1;
-                        }
-                        lua_rawset( L,tb_index + 1 );
-                    }break;
-                    default :
-                        assert( 0 );
-                        break;
+                if ( decode_attribute( L,child,-2 ) < 0 )
+                {
+                    MARK_ERROR( msg,"decode_attribute error" );
+                    lua_settop( L,top );
+                    return -1;
                 }
             }break;
             case rapidxml::node_data:  /* fall through */
@@ -164,104 +76,16 @@ int decode_array_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
                 lua_pushlstring( L,child->value(),child->value_size() );
                 break;
             default:
-                lua_pop( L,2 );
                 MARK_ERROR( msg,"unsupport xml type" );
+                lua_settop( L,top );
                 return -1;
         }
-        lua_rawseti( L,tb_index,index );
+
+        lua_rawseti( L,top + 1,index );
         ++index;
     }
 
     return 1;
-}
-
-
-int decode_object_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
-{
-    assert( rapidxml::node_element == node->type() );
-
-    lua_newtable( L );
-    int tb_index = lua_gettop( L );
-
-    lua_pushlstring( L,node->name(),node->name_size() );
-    lua_pushlstring( L,node->value(),node->value_size() );
-
-    if ( decode_attribute( L,node,tb_index ) < 0 )
-    {
-        MARK_ERROR( msg,"decode_object_node error" );
-        lua_pop( L,3 );
-        return -1;
-    }
-    lua_rawset( L,-3 );
-
-    return 0;
-}
-
-inline int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg,int index )
-{
-    int stack_inc = 0;
-    switch( node->type() )
-    {
-        case rapidxml::node_element:
-        {
-            switch( key_value_type( node ) )
-            {
-                case K_V:
-                {
-                    /* Value contains text of first data node. */
-                    lua_pushlstring( L,node->name(),node->name_size() );
-                    lua_pushlstring( L,node->value(),node->value_size() );
-                    lua_rawset( L,index );
-                }break;
-                case K_VT:
-                {
-                    lua_pushlstring( L,node->value(),node->value_size() );
-                    rapidxml::xml_node<> *sub_node = node->first_node();
-
-                    int return_code = 0;
-                    if ( is_array( sub_node ) )
-                        return_code = decode_array_node( L,sub_node,msg );
-                    else
-                        return_code = decode_object_node( L,sub_node,msg );
-                    if ( return_code < 0 )
-                    {
-                        lua_pop( L,1 );
-                        return -1;
-                    }
-
-                    if ( decode_attribute( L,sub_node,lua_gettop(L) ) < 0 )
-                    {
-                        lua_pop( L,2 );
-                        return -1;
-                    }
-                    lua_rawset( L,index );
-                }break;
-                case K_V_T:
-                {
-                    std::cout << "K_V_T" << std::endl;
-                    lua_pushlstring( L,node->name(),node->name_size() );
-                    lua_pushlstring( L,node->value(),node->value_size() );
-
-                    if ( decode_attribute( L,node,index ) < 0 )
-                    {
-                        MARK_ERROR( msg,"decode K_V_T attribute error" );
-                        lua_pop( L,2 );
-                        return -1;
-                    }
-                    lua_rawset( L,index );
-                }break;
-                default :
-                    assert( 0 );
-                    break;
-            }
-        }break;
-        default :
-            MARK_ERROR( msg,"unsupport node type" );
-            return -1;
-            break;
-    }
-
-    return stack_inc;
 }
 
 int decode( lua_State *L )
@@ -272,7 +96,7 @@ int decode( lua_State *L )
     char msg[MAX_MSG_LEN] = { 0 };
     /* luaL_error do a longjump,conflict with C++ stack unwind */
     {
-        rapidxml::xml_document<>  doc;
+        rapidxml::xml_document<> doc;
         try
         {
             /* nerver modify str */
@@ -299,9 +123,7 @@ int decode( lua_State *L )
             return -1;
         }
 
-        rapidxml::xml_node<> *node = doc.first_node();
-        if ( is_array( node ) ) return_code = decode_array_node( L,node,msg );
-        else return_code = decode_object_node( L,node,msg );
+        return_code = decode_node( L,doc.first_node(),msg );
     }
     if ( return_code < 0 ) lua_rapidxml_error( L,msg );
 
