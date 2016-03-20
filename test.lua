@@ -79,5 +79,7 @@ local xml_document = {}
 table.insert( xml_document,xml_node )
 print( xml.encode( xml_document ) )
 print( "eeeeeeeeeeeeeee")
+
 -- 注意栈深度保护
 -- 检测元表是否已存在
+-- encode时pretty标识

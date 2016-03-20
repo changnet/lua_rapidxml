@@ -195,10 +195,10 @@ int encode_table( lua_State *L,int index,rapidxml::xml_document<> *doc,
             MARK_ERROR( msg,"xml encode fail","node name must be string" );
             return -1;
         }
-        size_t len = 0;
-        const char *pname = lua_tolstring( L,-1,&len );
+        size_t name_len = 0;
+        const char *pname = lua_tolstring( L,-1,&name_len );
         /* do't worry about memory leak here,doc.clear() will free all */
-        const char *name = doc->allocate_string( pname,len );
+        const char *name = doc->allocate_string( pname,name_len );
         lua_pop( L,1 ); /* pop name */
 
         lua_pushstring( L,VALUE_KEY );
@@ -213,29 +213,32 @@ int encode_table( lua_State *L,int index,rapidxml::xml_document<> *doc,
             case LUA_TNUMBER :
             {
                 char _buffer[64];
+                size_t val_len = 0;
                 double val = lua_tonumber( L,-1 );
 
                 if ( floor(val) == val ) /* integer */
                 {
-                    snprintf( _buffer,64,"%.0f",val );
+                    val_len = snprintf( _buffer,64,"%.0f",val );
                 }
                 else
                 {
-                    snprintf( _buffer,64,"%f",val );
+                    val_len = snprintf( _buffer,64,"%f",val );
                 }
-                const char *value = doc->allocate_string( _buffer,0 );
-                child = doc->allocate_node( rapidxml::node_element,name,value );
+                const char *value = doc->allocate_string( _buffer,val_len );
+                child = doc->allocate_node( rapidxml::node_element,name,value,
+                    name_len,val_len );
             }break;
             case LUA_TSTRING :
             {
-                size_t len = 0;
-                const char *val = lua_tolstring( L,-1,&len );
-                const char *value = doc->allocate_string( val,len );
-                child = doc->allocate_node( rapidxml::node_element,name,value );
+                size_t val_len = 0;
+                const char *val = lua_tolstring( L,-1,&val_len );
+                const char *value = doc->allocate_string( val,val_len );
+                child = doc->allocate_node( rapidxml::node_element,name,value,
+                    name_len,val_len );
             }break;
             case LUA_TTABLE :
             {
-                child = doc->allocate_node( rapidxml::node_element,name );
+                child = doc->allocate_node( rapidxml::node_element,name,0,name_len );
                 if ( encode_table( L,lua_gettop(L),doc,child,msg) < 0 )
                 {
                     lua_settop( L,top );
@@ -278,7 +281,8 @@ int encode_table( lua_State *L,int index,rapidxml::xml_document<> *doc,
 
                     child->append_attribute( doc->allocate_attribute(
                         doc->allocate_string( key,key_len ),
-                        doc->allocate_string( val,val_len )
+                        doc->allocate_string( val,val_len ),
+                        key_len,val_len
                     ));
 
                     lua_pop( L,1 );
