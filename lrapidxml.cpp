@@ -4,6 +4,8 @@
 
 #include <rapidxml.hpp>
 #include <rapidxml_utils.hpp>
+#include <rapidxml_print.hpp>
+
 #include "lrapidxml.hpp"
 
 #define NAME_KEY    "name"
@@ -259,10 +261,10 @@ int encode_table( lua_State *L,int index,rapidxml::xml_document<> *doc,
             case LUA_TTABLE :
             {
                 lua_pushnil( L );
-                while ( 0 != lua_next( L,-1 ) )
+                while ( 0 != lua_next( L,-2 ) )
                 {
                     if ( LUA_TSTRING != lua_type( L,-1 ) ||
-                        LUA_TSTRING != lua_type( L,-1 ) )
+                        LUA_TSTRING != lua_type( L,-2 ) )
                     {
                         lua_settop( L,top );
                         MARK_ERROR( msg,"xml attribute decode fail",
@@ -278,6 +280,8 @@ int encode_table( lua_State *L,int index,rapidxml::xml_document<> *doc,
                         doc->allocate_string( key,key_len ),
                         doc->allocate_string( val,val_len )
                     ));
+
+                    lua_pop( L,1 );
                 }
             }break;
             default:
@@ -310,6 +314,10 @@ int do_encode( lua_State *L,int index,char *msg )
         doc.clear();
         return -1;
     }
+
+    std::string str;
+    rapidxml::print( std::back_inserter(str), doc, 0 );
+    lua_pushstring( L,str.c_str() );
 
     doc.clear();
     return 1;

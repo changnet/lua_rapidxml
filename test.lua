@@ -77,6 +77,7 @@ xml_node.attribute.href = "www.baidu.com"
 
 local xml_document = {}
 table.insert( xml_document,xml_node )
-vd( xml.encode( xml_document ) )
+print( xml.encode( xml_document ) )
+print( "eeeeeeeeeeeeeee")
 -- 注意栈深度保护
 -- 检测元表是否已存在
