@@ -69,7 +69,14 @@ local xml_test = [==[
 --vd( xml_tb )
 --vd( getmetatable(xml_tb[1]))
 
+local xml_node = {}
+xml_node.name = "article"
+xml_node.value = "book"
+xml_node.attribute = {}
+xml_node.attribute.href = "www.baidu.com"
 
-vd( xml.decode_from_file("test.xml") )
+local xml_document = {}
+table.insert( xml_document,xml_node )
+vd( xml.encode( xml_document ) )
 -- 注意栈深度保护
 -- 检测元表是否已存在
