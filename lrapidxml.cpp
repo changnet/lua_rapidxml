@@ -1,4 +1,5 @@
 #include <cmath>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 
@@ -84,53 +85,46 @@ int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
     return 1;
 }
 
-int do_decode( lua_State *L,const char *str,char *msg )
-{
-    rapidxml::xml_document<> doc;
-    try
-    {
-        /* nerver modify str */
-        doc.parse<rapidxml::parse_non_destructive>( const_cast<char *>(str) );
-    }
-    catch ( const std::runtime_error& e )
-    {
-        doc.clear();
-        MARK_ERROR( msg,"xml decode fail",e.what() );
-        return -1;
-    }
-    catch (const rapidxml::parse_error& e)
-    {
-        doc.clear();
-        MARK_ERROR( msg,"invalid xml string",e.what() );
-        return -1;
-    }
-    catch (const std::exception& e)
-    {
-        doc.clear();
-        MARK_ERROR( msg,"xml decode fail",e.what() );
-        return -1;
-    }
-    catch (...)
-    {
-        doc.clear();
-        MARK_ERROR( msg,"xml decode fail","unknow error" );
-        return -1;
-    }
-
-    int return_code = decode_node( L,doc.first_node(),msg );
-
-    /* rapidxml static memory pool will never free,until you call clear */
-    doc.clear();
-    return return_code;
-}
-
 int decode( lua_State *L )
 {
     const char *str = luaL_checkstring( L,1 );
 
+    int return_code = 0;
     char msg[MAX_MSG_LEN] = { 0 };
 
-    int return_code = do_decode( L,str,msg );
+    {
+        rapidxml::xml_document<> doc;
+        try
+        {
+            /* nerver modify str */
+            doc.parse<rapidxml::parse_non_destructive>( const_cast<char *>(str) );
+            return_code = decode_node( L,doc.first_node(),msg );
+        }
+        catch ( const std::runtime_error& e )
+        {
+            return_code = -1;
+            MARK_ERROR( msg,"xml decode fail",e.what() );
+        }
+        catch (const rapidxml::parse_error& e)
+        {
+            return_code = -1;
+            MARK_ERROR( msg,"invalid xml string",e.what() );
+        }
+        catch (const std::exception& e)
+        {
+            return_code = -1;
+            MARK_ERROR( msg,"xml decode fail",e.what() );
+        }
+        catch (...)
+        {
+            return_code = -1;
+            MARK_ERROR( msg,"xml decode fail","unknow error" );
+        }
+
+        /* rapidxml static memory pool will never free,until you call clear */
+        doc.clear();
+    }
+
     if ( return_code < 0 )
     {
         lua_rapidxml_error( L,msg );
@@ -150,16 +144,37 @@ int decode_from_file( lua_State *L )
      * so we make a code block here
      */
     {
+        rapidxml::xml_document<> doc;
         try
         {
-            rapidxml::file<> fdoc( path );
-            return_code = do_decode( L,fdoc.data(),msg );
+            rapidxml::file<> in( path );
+            /* nerver modify str */
+            doc.parse<rapidxml::parse_non_destructive>( const_cast<char *>(in.data()) );
+            return_code = decode_node( L,doc.first_node(),msg );
         }
         catch ( const std::runtime_error& e )
         {
-            MARK_ERROR( msg,"xml decode fail",e.what() );
             return_code = -1;
+            MARK_ERROR( msg,"xml decode fail",e.what() );
         }
+        catch (const rapidxml::parse_error& e)
+        {
+            return_code = -1;
+            MARK_ERROR( msg,"invalid xml string",e.what() );
+        }
+        catch (const std::exception& e)
+        {
+            return_code = -1;
+            MARK_ERROR( msg,"xml decode fail",e.what() );
+        }
+        catch (...)
+        {
+            return_code = -1;
+            MARK_ERROR( msg,"xml decode fail","unknow error" );
+        }
+
+        /* rapidxml static memory pool will never free,until you call clear */
+        doc.clear();
     }
 
     if ( return_code < 0 )
@@ -171,7 +186,7 @@ int decode_from_file( lua_State *L )
     return 1;
 }
 
-int encode_table( lua_State *L,int index,rapidxml::xml_document<> *doc,
+int encode_node( lua_State *L,int index,rapidxml::xml_document<> *doc,
     rapidxml::xml_node<> *node,char *msg )
 {
     int top = lua_gettop( L );
@@ -239,7 +254,7 @@ int encode_table( lua_State *L,int index,rapidxml::xml_document<> *doc,
             case LUA_TTABLE :
             {
                 child = doc->allocate_node( rapidxml::node_element,name,0,name_len );
-                if ( encode_table( L,lua_gettop(L),doc,child,msg) < 0 )
+                if ( encode_node( L,lua_gettop(L),doc,child,msg) < 0 )
                 {
                     lua_settop( L,top );
                     return -1;
@@ -305,28 +320,6 @@ int encode_table( lua_State *L,int index,rapidxml::xml_document<> *doc,
     return 0;
 }
 
-int do_encode( lua_State *L,int index,char *msg )
-{
-    rapidxml::xml_document<> doc;
-    /* document type */
-    rapidxml::xml_node<>* dt = doc.allocate_node( rapidxml::node_pi,
-        doc.allocate_string("xml version='1.0' encoding='utf-8'") );
-    doc.append_node( dt );
-
-    if ( encode_table( L,index,&doc,&doc,msg) < 0 )
-    {
-        doc.clear();
-        return -1;
-    }
-
-    std::string str;
-    rapidxml::print( std::back_inserter(str), doc, 0 );
-    lua_pushstring( L,str.c_str() );
-
-    doc.clear();
-    return 1;
-}
-
 int encode( lua_State *L )
 {
     if ( !lua_istable( L,1) )
@@ -334,14 +327,119 @@ int encode( lua_State *L )
         return luaL_error( L,"argument #1 table expect" );
     }
 
+    int pretty = lua_toboolean( L,2 );
+
+    int return_code = 0;
     char msg[MAX_MSG_LEN] = { 0 };
-    int return_code = do_encode( L,1,msg );
+
+    {
+        rapidxml::xml_document<> doc;
+        try
+        {
+            /* document type */
+            rapidxml::xml_node<>* dt = doc.allocate_node( rapidxml::node_pi,
+                doc.allocate_string("xml version='1.0' encoding='utf-8'") );
+            doc.append_node( dt );
+
+            if ( encode_node( L,1,&doc,&doc,msg) < 0 )
+            {
+                return_code = -1;
+            }
+            else
+            {
+                std::string str;
+                rapidxml::print( std::back_inserter(str), doc,
+                    pretty ? 0 : rapidxml::print_no_indenting );
+                lua_pushstring( L,str.c_str() );
+            }
+        }
+        catch( const std::bad_alloc &e )
+        {
+            return_code = -1;
+            MARK_ERROR( msg,"memory allocate fail",e.what() );
+        }
+        catch ( ... )
+        {
+            return_code = -1;
+            MARK_ERROR( msg,"encode_to_file","unknow error" );
+        }
+
+        doc.clear();
+    }
+
     if ( return_code < 0 )
     {
         lua_rapidxml_error( L,msg );
         return 0;
     }
 
+    return 1;
+}
+
+int encode_to_file( lua_State *L )
+{
+    if ( !lua_istable( L,1) )
+    {
+        return luaL_error( L,"argument #1 table expect" );
+    }
+
+    const char *path = luaL_checkstring( L,2 );
+    int pretty = lua_toboolean( L,3 );
+
+    int return_code = 0;
+    char msg[MAX_MSG_LEN] = { 0 };
+
+    {
+        rapidxml::xml_document<> doc;
+        try
+        {
+            /* document type */
+            rapidxml::xml_node<>* dt = doc.allocate_node( rapidxml::node_pi,
+                doc.allocate_string("xml version='1.0' encoding='utf-8'") );
+            doc.append_node( dt );
+
+            if ( encode_node( L,1,&doc,&doc,msg) < 0 )
+            {
+                return_code = -1;
+            }
+            else  /* write to file */
+            {
+                std::ofstream out;
+                out.exceptions ( std::ifstream::failbit | std::ifstream::badbit );
+                out.open( path,std::ofstream::out|std::ofstream::trunc );
+
+                assert( out.good() );
+                rapidxml::print( std::ostream_iterator<char>(out),doc,
+                    pretty ? 0 : rapidxml::print_no_indenting );
+                out.close();
+            }
+        }
+        catch( const std::bad_alloc &e )
+        {
+            return_code = -1;
+            MARK_ERROR( msg,"memory allocate fail",e.what() );
+        }
+        catch (std::ifstream::failure e)
+        {
+            return_code = -1;
+            MARK_ERROR( msg,"write to file fail",e.what() );
+        }
+        catch ( ... )
+        {
+            return_code = -1;
+            MARK_ERROR( msg,"encode_to_file","unknow error" );
+        }
+
+        doc.clear();
+    }
+
+    if ( return_code < 0 )
+    {
+        lua_rapidxml_error( L,msg );
+        return 0;
+    }
+
+    lua_pushboolean( L,1 );
     return 1;
 }
 
@@ -378,7 +476,7 @@ static const luaL_Reg lua_rapidxml_lib[] =
 {
     {"encode", encode},
     {"decode", decode},
-    //{"encode_to_file", encode_to_file},
+    {"encode_to_file", encode_to_file},
     {"decode_from_file", decode_from_file},
     {NULL, NULL}
 };

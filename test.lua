@@ -65,20 +65,27 @@ local xml_test = [==[
 	<body>Don't forget the meeting!</body>
 </note>
 ]==]
---local xml_tb = xml.decode( xml_str )
---vd( xml_tb )
---vd( getmetatable(xml_tb[1]))
+local xml_tb = xml.decode( xml_str )
+vd( xml_tb )
+vd( xml.decode_from_file("t.xml") )
+
+local xml_child = {}
+xml_child.name = "name"
+xml_child.value = "John"
 
 local xml_node = {}
-xml_node.name = "article"
-xml_node.value = "book"
+xml_node.name = "friend"
+xml_node.value = {}
 xml_node.attribute = {}
 xml_node.attribute.href = "www.baidu.com"
+for i = 1,5 do
+    table.insert( xml_node.value,xml_child )
+end
 
 local xml_document = {}
 table.insert( xml_document,xml_node )
-print( xml.encode( xml_document ) )
-print( "eeeeeeeeeeeeeee")
+print( xml.encode( xml_document,true ) )
+print( xml.encode_to_file( xml_document,"t.xml",true ) )
 
 -- 注意栈深度保护
 -- 检测元表是否已存在
