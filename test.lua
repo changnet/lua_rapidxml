@@ -65,9 +65,11 @@ local xml_test = [==[
 	<body>Don't forget the meeting!</body>
 </note>
 ]==]
-local xml_tb = xml.decode( xml_str )
-vd( xml_tb )
-vd( getmetatable(xml_tb[1]))
+--local xml_tb = xml.decode( xml_str )
+--vd( xml_tb )
+--vd( getmetatable(xml_tb[1]))
 
+
+vd( xml.decode_from_file("test.xml") )
 -- 注意栈深度保护
 -- 检测元表是否已存在

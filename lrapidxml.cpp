@@ -1,39 +1,17 @@
-#include <map>
 #include <iostream>
 #include <stdexcept>
 
 #include <rapidxml.hpp>
+#include <rapidxml_utils.hpp>
 #include "lrapidxml.hpp"
 
 #define MAX_STACK   1024
 #define MAX_MSG_LEN 256
-#define MARK_ERROR(x,what) snprintf( msg,MAX_MSG_LEN,"%s",what )
+#define MARK_ERROR(x,note,what) snprintf( x,MAX_MSG_LEN,"%s:%s",note,what )
 
 void lua_rapidxml_error( lua_State *L,const char *msg )
 {
     luaL_error( L,msg );
-}
-
-int decode_attribute( lua_State *L,rapidxml::xml_node<> *node,int index )
-{
-    assert( LUA_TTABLE == lua_type( L,index ) );
-    if ( !(node->first_attribute()) ) return 0;
-
-    /* create a metatable */
-    lua_newtable( L );
-
-    /* all attributes are store at metatable */
-    for ( rapidxml::xml_attribute<> *attr = node->first_attribute(); attr; attr = attr->next_attribute() )
-    {
-        lua_pushlstring( L,attr->name(),attr->name_size() );
-        lua_pushlstring( L,attr->value(),attr->value_size() );
-
-        lua_rawset( L,-3 );
-    }
-
-    lua_setmetatable( L,index );
-
-    return 0;
 }
 
 int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
@@ -52,10 +30,12 @@ int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
             {
                 lua_createtable( L,0,2 );
 
+                /* element name */
                 lua_pushstring( L,"name" );
                 lua_pushlstring( L,child->name(),child->name_size() );
                 lua_rawset( L,-3 );
 
+                /* element value */
                 lua_pushstring( L,"value" );
                 if ( decode_node( L,child->first_node(),msg ) < 0 )
                 {
@@ -64,11 +44,20 @@ int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
                 }
                 lua_rawset( L,-3 );
 
-                if ( decode_attribute( L,child,-2 ) < 0 )
+                /* attribute */
+                rapidxml::xml_attribute<> *attr = child->first_attribute();
+                if ( attr )
                 {
-                    MARK_ERROR( msg,"decode_attribute error" );
-                    lua_settop( L,top );
-                    return -1;
+                    lua_pushstring( L,"attribute" );
+                    lua_newtable( L );
+                    for ( ; attr; attr = attr->next_attribute() )
+                    {
+                        lua_pushlstring( L,attr->name(),attr->name_size() );
+                        lua_pushlstring( L,attr->value(),attr->value_size() );
+
+                        lua_rawset( L,-3 );
+                    }
+                    lua_rawset( L,-3 );
                 }
             }break;
             case rapidxml::node_data:  /* fall through */
@@ -76,7 +65,7 @@ int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
                 lua_pushlstring( L,child->value(),child->value_size() );
                 break;
             default:
-                MARK_ERROR( msg,"unsupport xml type" );
+                MARK_ERROR( msg,"xml decode fail","unsupport xml type" );
                 lua_settop( L,top );
                 return -1;
         }
@@ -88,46 +77,73 @@ int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
     return 1;
 }
 
+int do_decode( lua_State *L,const char *str,char *msg )
+{
+    /* luaL_error do a longjump,conflict with C++ stack unwind */
+    rapidxml::xml_document<> doc;
+    try
+    {
+        /* nerver modify str */
+        doc.parse<rapidxml::parse_non_destructive>( const_cast<char *>(str) );
+    }
+    catch ( const std::runtime_error& e )
+    {
+        MARK_ERROR( msg,"xml decode fail",e.what() );
+        return -1;
+    }
+    catch (const rapidxml::parse_error& e)
+    {
+        MARK_ERROR( msg,"invalid xml string",e.what() );
+        return -1;
+    }
+    catch (const std::exception& e)
+    {
+        MARK_ERROR( msg,"xml decode fail",e.what() );
+        return -1;
+    }
+    catch (...)
+    {
+        MARK_ERROR( msg,"xml decode fail","unknow error" );
+        return -1;
+    }
+
+    return decode_node( L,doc.first_node(),msg );
+}
+
 int decode( lua_State *L )
 {
     const char *str = luaL_checkstring( L,1 );
 
+    char msg[MAX_MSG_LEN] = { 0 };
+
+    int return_code = do_decode( L,str,msg );
+    if ( return_code < 0 )
+    {
+        lua_rapidxml_error( L,msg );
+        return 0;
+    }
+
+    return 1;
+}
+
+int decode_from_file( lua_State *L )
+{
+    const char *path = luaL_checkstring( L,1 );
+
     int return_code = 0;
     char msg[MAX_MSG_LEN] = { 0 };
-    /* luaL_error do a longjump,conflict with C++ stack unwind */
     {
-        rapidxml::xml_document<> doc;
-        try
-        {
-            /* nerver modify str */
-            doc.parse<rapidxml::parse_non_destructive>( const_cast<char *>(str) );
-        }
-        catch ( const std::runtime_error& e )
-        {
-            MARK_ERROR( msg,e.what() );
-            return -1;
-        }
-        catch (const rapidxml::parse_error& e)
-        {
-            MARK_ERROR( msg,e.what() );
-            return -1;
-        }
-        catch (const std::exception& e)
-        {
-            MARK_ERROR( msg,e.what() );
-            return -1;
-        }
-        catch (...)
-        {
-            MARK_ERROR( msg,"unknow error" );
-            return -1;
-        }
-
-        return_code = decode_node( L,doc.first_node(),msg );
+        rapidxml::file<> fdoc( path );
+        return_code = do_decode( L,fdoc.data(),msg );
     }
-    if ( return_code < 0 ) lua_rapidxml_error( L,msg );
 
-    return return_code;
+    if ( return_code < 0 )
+    {
+        lua_rapidxml_error( L,msg );
+        return 0;
+    }
+
+    return 1;
 }
 
 /* ====================LIBRARY INITIALISATION FUNCTION======================= */
@@ -164,7 +180,7 @@ static const luaL_Reg lua_rapidxml_lib[] =
     //{"encode", encode},
     {"decode", decode},
     //{"encode_to_file", encode_to_file},
-    //{"decode_from_file", decode_from_file},
+    {"decode_from_file", decode_from_file},
     {NULL, NULL}
 };
 
