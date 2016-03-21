@@ -460,7 +460,7 @@ int encode_to_file( lua_State *L )
         {
             /* document type */
             rapidxml::xml_node<>* dt = doc.allocate_node( rapidxml::node_pi,
-                doc.allocate_string("xml version='1.0' encoding='utf-8'") );
+                doc.allocate_string("xml version=\"1.0\" encoding=\"utf-8\"") );
             doc.append_node( dt );
 
             if ( encode_node( L,1,&doc,&doc,msg) < 0 )
