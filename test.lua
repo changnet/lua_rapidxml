@@ -59,21 +59,6 @@ local xml_str = [==[
 <note>rapid is a <b>fast</b> xml parse library.</note>
 ]==]
 
-local x = [==[
-
-]==]
-
---[[
-
-1.文档转换为数组
-2.元素转换为table,分别存在
-    name
-    value如果值为单个，则转换为字符串，否则为数组
-    attribute,k-v结构，不允许重复
-3.命名空间被当作属性一样对待
-4.pre-defined entity references 实体引用当作字符串，需要各人得到字符串后解析
-]]
-
 local xml_tb = xml.decode( xml_str )
 vd( xml_tb )
 
