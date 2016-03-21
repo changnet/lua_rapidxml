@@ -25,6 +25,13 @@ void lua_rapidxml_error( lua_State *L,const char *msg )
 int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
 {
     int top = lua_gettop( L );
+    if ( top > MAX_STACK )
+    {
+        MARK_ERROR( msg,"xml decode","stack overflow" );
+        return -1;
+    }
+
+    luaL_checkstack( L,4,"xml decode out of stack" );
     lua_newtable( L );
 
     int index = 1;
@@ -45,10 +52,21 @@ int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
 
                 /* element value */
                 lua_pushstring( L,VALUE_KEY );
-                if ( decode_node( L,child->first_node(),msg ) < 0 )
+                rapidxml::xml_node<> *sub_node = child->first_node();
+                if ( sub_node->next_sibling() || rapidxml::node_element == sub_node->type() )
                 {
-                    lua_settop( L,top );
-                    return -1;
+                    if ( decode_node( L,sub_node,msg ) < 0 )
+                    {
+                        lua_settop( L,top );
+                        return -1;
+                    }
+                }
+                else
+                {
+                    /* if value only contain one value,decode as string,not a table */
+                    assert( rapidxml::node_data == sub_node->type() ||
+                        rapidxml::node_cdata == sub_node->type() );
+                    lua_pushlstring( L,sub_node->value(),sub_node->value_size() );
                 }
                 lua_rawset( L,-3 );
 
@@ -190,18 +208,65 @@ int encode_node( lua_State *L,int index,rapidxml::xml_document<> *doc,
     rapidxml::xml_node<> *node,char *msg )
 {
     int top = lua_gettop( L );
+    if ( top > MAX_STACK )
+    {
+        MARK_ERROR( msg,"xml encode","stack overflow" );
+        return -1;
+    }
+
+    luaL_checkstack( L,5,"xml encode out of stack" );
 
     lua_pushnil( L );
     while ( 0 != lua_next( L,index ) )
     {
-        if ( !lua_istable( L,-1 ) )
-        {
-            lua_settop( L,top );
-            MARK_ERROR( msg,"xml encode fail","every node must be a table" );
-            return -1;
-        }
-
         rapidxml::xml_node<> *child = 0;
+        switch( lua_type( L,-1 ) )
+        {
+            case LUA_TNUMBER :
+            {
+                char _buffer[64];
+                size_t val_len = 0;
+                double val = lua_tonumber( L,-1 );
+
+                if ( floor(val) == val ) /* integer */
+                {
+                    val_len = snprintf( _buffer,64,"%.0f",val );
+                }
+                else
+                {
+                    val_len = snprintf( _buffer,64,"%f",val );
+                }
+                const char *value = doc->allocate_string( _buffer,val_len );
+                child = doc->allocate_node( rapidxml::node_data,0,value,
+                    0,val_len );
+
+                lua_pop( L,1 ); /* pop key */
+                node->append_node( child );
+                child = 0;
+                continue;
+            }break;
+            case LUA_TSTRING :
+            {
+                size_t val_len = 0;
+                const char *val = lua_tolstring( L,-1,&val_len );
+                const char *value = doc->allocate_string( val,val_len );
+                child = doc->allocate_node( rapidxml::node_data,0,value,
+                    0,val_len );
+
+                lua_pop( L,1 ); /* pop key */
+                node->append_node( child );
+                child = 0;
+                continue;
+            }break;
+            case LUA_TTABLE :
+                /* node have name and value,do nothing here */
+                break;
+            default :
+                lua_settop( L,top );
+                MARK_ERROR( msg,"xml encode fail","node must be number,string or table" );
+                return -1;
+        }
+        /* handle a node with name and value */
         lua_pushstring( L,NAME_KEY );
         lua_rawget( L,-2 );
         if ( !lua_isstring( L,-1 ) )
@@ -338,7 +403,7 @@ int encode( lua_State *L )
         {
             /* document type */
             rapidxml::xml_node<>* dt = doc.allocate_node( rapidxml::node_pi,
-                doc.allocate_string("xml version='1.0' encoding='utf-8'") );
+                doc.allocate_string("xml version=\"1.0\" encoding=\"utf-8\"") );
             doc.append_node( dt );
 
             if ( encode_node( L,1,&doc,&doc,msg) < 0 )
