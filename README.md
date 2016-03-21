@@ -1,4 +1,7 @@
 # lua_rapidxml
+
+[![Build Status](https://travis-ci.org/changnet/lua_rapidxml.svg?branch=master)](https://travis-ci.org/changnet/lua_rapidxml)
+
 A lua xml encode/decode c++ module base on rapidxml(v1.13)  
 See more about rapidxml at http://rapidxml.sourceforge.net/
 
@@ -23,7 +26,7 @@ encode_to_file( tb,file,pretty )
 
 decode( str )
 decode_from_file( file )
-``` 
+```
 
 Conversion Rules
 ----------------
@@ -66,4 +69,3 @@ see "test.lua" for more.
     }
 }
 ```
- 
