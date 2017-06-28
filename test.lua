@@ -39,25 +39,27 @@ end
 
 local xml_str = [==[
 <?xml version="1.0" encoding="utf-8"?>
-<module xmlns:n = "lua_rapidxml">
-    <n:name>rapidxml</name>
-</module>
-<library note = "thanks" url = "github.com">
-    <name>lua</name>
-    <name>rapidxml</name>
-</library>
-<cdata>
-    <![CDATA[c = a > b ? a : b]]>
-</cdata>
-<entity>
-    <e>less than(&lt;)</e>
-    <e>greater than(&gt)</e>
-    <e>ampersand(&amp;)</e>
-    <e>apostrophe(&apos;)</e>
-    <e>quotation mark(&quot;)</e>
-</entity>
-<note>rapid is a <b>fast</b> xml parse library.</note>
-<childless name="childless node test"/>
+<root>
+    <module xmlns:n = "lua_rapidxml">
+        <name>rapidxml</name>
+    </module>
+    <library note = "thanks" url = "github.com">
+        <name>lua</name>
+        <name>rapidxml</name>
+    </library>
+    <cdata>
+        <![CDATA[c = a > b ? a : b]]>
+    </cdata>
+    <entity>
+        <e>less than(&lt;)</e>
+        <e>greater than(&gt)</e>
+        <e>ampersand(&amp;)</e>
+        <e>apostrophe(&apos;)</e>
+        <e>quotation mark(&quot;)</e>
+    </entity>
+    <note>rapidxml is a <b>fast</b> xml parse library.</note>
+    <childless name="childless node test"/>
+</root>
 ]==]
 
 local xml_tb = xml.decode( xml_str )

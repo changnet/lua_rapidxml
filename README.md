@@ -8,14 +8,13 @@ See more about rapidxml at http://rapidxml.sourceforge.net/
 Installation
 ------------
 
- * Make sure lua develop environment already installed
- * Run 'git clone https://github.com/changnet/lua_rapidxml.git'
- * Run 'cd lua_rapidxml'
- * Run 'make'
- * Run 'make test' to test
- * Copy lua_rapidxml.so to your lua project's c module directory
+ Make sure lua develop environment already installed
+ * git clone https://github.com/changnet/lua_rapidxml.git
+ * cd lua_rapidxml
+ * make
+ * make test
 
-or embed to your project
+ Copy lua_rapidxml.so to your lua project's c module directory or embed to your project
 
 Api
 -----
@@ -30,7 +29,6 @@ decode_from_file( file )
 
 Conversion Rules
 ----------------
- * xml document will be converted into a array(a lua table,key is 1 ... n)
  * every xml element will be converted into a lua table
    1. name is stored at key "name"
    2. attribute is stored at key "attribute" as a lua table
@@ -45,27 +43,23 @@ see "test.lua" for more.
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <module xmlns:n = "lua_rapidxml">
-    <n:name>lua_rapidxml</name>
+    <name>lua_rapidxml</name>
 </module>
 ```
 
 ```lua
 {
-    1 = table: 0x1870590
+    value =
     {
-        value = table: 0x1867ae0
         {
-            1 = table: 0x1867b20
-            {
-                name = n:name
-                value = lua_rapidxml
-            }
+            name = name
+            value = lua_rapidxml
         }
-        name = module
-        attribute = table: 0x1867c10
-        {
-            xmlns:n = lua_rapidxml
-        }
+    }
+    name = module
+    attribute =
+    {
+        xmlns:n = lua_rapidxml
     }
 }
 ```

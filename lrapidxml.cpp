@@ -17,9 +17,79 @@
 #define MAX_MSG_LEN 256
 #define MARK_ERROR(x,note,what) snprintf( x,MAX_MSG_LEN,"%s:%s",note,what )
 
+int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg );
+int encode_node( lua_State *L,int index,
+    rapidxml::xml_document<> *doc,rapidxml::xml_node<> *node,char *msg );
+
 void lua_rapidxml_error( lua_State *L,const char *msg )
 {
     luaL_error( L,msg );
+}
+
+int decode_element( lua_State *L,rapidxml::xml_node<> *node,char *msg )
+{
+    if ( rapidxml::node_element != node->type() )
+    {
+        MARK_ERROR( msg,"decode element","not a xml element" );
+        return -1;
+    }
+
+    if ( !lua_checkstack( L,5 ) )
+    {
+        MARK_ERROR( msg,"decode element","xml decode out of stack" );
+        return -1;
+    }
+
+    int top = lua_gettop( L );
+    lua_newtable( L );
+
+    /* element name */
+    lua_pushstring( L,NAME_KEY );
+    lua_pushlstring( L,node->name(),node->name_size() );
+    lua_rawset( L,-3 );
+
+    /* element value */
+    /* <oppn id="1" rk_min="2896" rk_max="2910"/> has no value */
+    if ( node->value_size() != 0 || node->first_node() )
+    {
+        lua_pushstring( L,VALUE_KEY );
+        rapidxml::xml_node<> *sub_node = node->first_node();
+        if ( sub_node->next_sibling() 
+            || rapidxml::node_element == sub_node->type() )
+        {
+            if ( decode_node( L,sub_node,msg ) < 0 )
+            {
+                lua_settop( L,top );
+                return -1;
+            }
+        }
+        else
+        {
+            /* if value only contain one value,decode as string,not a table */
+            assert( rapidxml::node_data == sub_node->type() ||
+                rapidxml::node_cdata == sub_node->type() );
+            lua_pushlstring( L,sub_node->value(),sub_node->value_size() );
+        }
+        lua_rawset( L,-3 );
+    }
+
+    /* attribute */
+    rapidxml::xml_attribute<> *attr = node->first_attribute();
+    if ( attr )
+    {
+        lua_pushstring( L,ATTR_KEY );
+        lua_newtable( L );
+        for ( ; attr; attr = attr->next_attribute() )
+        {
+            lua_pushlstring( L,attr->name(),attr->name_size() );
+            lua_pushlstring( L,attr->value(),attr->value_size() );
+
+            lua_rawset( L,-3 );
+        }
+        lua_rawset( L,-3 );
+    }
+
+    return 0;
 }
 
 int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
@@ -31,73 +101,32 @@ int decode_node( lua_State *L,rapidxml::xml_node<> *node,char *msg )
         return -1;
     }
 
-    luaL_checkstack( L,4,"xml decode out of stack" );
+    if ( !lua_checkstack( L,2 ) )
+    {
+        MARK_ERROR( msg,"decode node","xml decode out of stack" );
+        return -1;
+    }
     lua_newtable( L );
 
     int index = 1;
     for ( rapidxml::xml_node<> *child = node; child; child = child->next_sibling() )
     {
-        assert( rapidxml::node_element == child->type() );
-
         switch( child->type() )
         {
-            case rapidxml::node_element:
+            case rapidxml::node_element :
             {
-                lua_createtable( L,0,2 );
-
-                /* element name */
-                lua_pushstring( L,NAME_KEY );
-                lua_pushlstring( L,child->name(),child->name_size() );
-                lua_rawset( L,-3 );
-
-                /* element value */
-                /* <oppn id="1" rk_min="2896" rk_max="2910"/> has no value */
-                if ( child->value_size() != 0 || child->first_node() )
+                if ( decode_element( L,child,msg ) < 0 )
                 {
-                    lua_pushstring( L,VALUE_KEY );
-                    rapidxml::xml_node<> *sub_node = child->first_node();
-                    if ( sub_node->next_sibling() || rapidxml::node_element == sub_node->type() )
-                    {
-                        if ( decode_node( L,sub_node,msg ) < 0 )
-                        {
-                            lua_settop( L,top );
-                            return -1;
-                        }
-                    }
-                    else
-                    {
-                        /* if value only contain one value,decode as string,not a table */
-                        assert( rapidxml::node_data == sub_node->type() ||
-                            rapidxml::node_cdata == sub_node->type() );
-                        lua_pushlstring( L,sub_node->value(),sub_node->value_size() );
-                    }
-                    lua_rawset( L,-3 );
-                }
-
-                /* attribute */
-                rapidxml::xml_attribute<> *attr = child->first_attribute();
-                if ( attr )
-                {
-                    lua_pushstring( L,ATTR_KEY );
-                    lua_newtable( L );
-                    for ( ; attr; attr = attr->next_attribute() )
-                    {
-                        lua_pushlstring( L,attr->name(),attr->name_size() );
-                        lua_pushlstring( L,attr->value(),attr->value_size() );
-
-                        lua_rawset( L,-3 );
-                    }
-                    lua_rawset( L,-3 );
+                    lua_settop( L,top );
+                    return -1;
                 }
             }break;
-            case rapidxml::node_data:  /* fall through */
+            case rapidxml::node_data:  /* auto fall through */
             case rapidxml::node_cdata:
                 lua_pushlstring( L,child->value(),child->value_size() );
                 break;
             default:
-                MARK_ERROR( msg,"xml decode fail","unsupport xml type" );
-                lua_settop( L,top );
-                return -1;
+                MARK_ERROR( msg,"xml decode","unsupport xml type" );
         }
 
         lua_rawseti( L,top + 1,index );
@@ -120,7 +149,7 @@ int decode( lua_State *L )
         {
             /* nerver modify str */
             doc.parse<rapidxml::parse_non_destructive>( const_cast<char *>(str) );
-            return_code = decode_node( L,doc.first_node(),msg );
+            return_code = decode_element( L,doc.first_node(),msg );
         }
         catch ( const std::runtime_error& e )
         {
@@ -172,7 +201,7 @@ int decode_from_file( lua_State *L )
             rapidxml::file<> in( path );
             /* nerver modify str */
             doc.parse<rapidxml::parse_non_destructive>( const_cast<char *>(in.data()) );
-            return_code = decode_node( L,doc.first_node(),msg );
+            return_code = decode_element( L,doc.first_node(),msg );
         }
         catch ( const std::runtime_error& e )
         {
@@ -208,17 +237,157 @@ int decode_from_file( lua_State *L )
     return 1;
 }
 
-int encode_node( lua_State *L,int index,rapidxml::xml_document<> *doc,
-    rapidxml::xml_node<> *node,char *msg )
+rapidxml::xml_node<> *encode_element( 
+    lua_State *L,int index,rapidxml::xml_document<> *doc,char *msg )
 {
+    if ( !lua_istable( L,index ) )
+    {
+        MARK_ERROR( msg,"encode element","not a valid table" );
+        return NULL;
+    }
+
     int top = lua_gettop( L );
     if ( top > MAX_STACK )
     {
-        MARK_ERROR( msg,"xml encode","stack overflow" );
+        MARK_ERROR( msg,"encode element","stack overflow" );
+        return NULL;
+    }
+
+    if ( !lua_checkstack( L,3 ) )
+    {
+        MARK_ERROR( msg,"encode element","out of stack" );
+        return NULL;
+    }
+
+    lua_pushstring( L,NAME_KEY );
+    lua_rawget( L,index );
+    if ( !lua_isstring( L,top + 1 ) )
+    {
+        lua_settop( L,top );
+        MARK_ERROR( msg,"encode element","node name must be string" );
+        return NULL;
+    }
+    rapidxml::xml_node<>* child = NULL;
+
+    size_t name_len = 0;
+    const char *pname = lua_tolstring( L,-1,&name_len );
+    /* do't worry about memory leak here,doc.clear() will free all */
+    const char *name = doc->allocate_string( pname,name_len );
+    lua_pop( L,1 ); /* pop name */
+
+    lua_pushstring( L,VALUE_KEY );
+    lua_rawget( L,index );
+    switch ( lua_type( L,-1 ) )
+    {
+    case LUA_TNIL :
+    {
+        /* childless node,has no value and child node */
+        child = doc->allocate_node( rapidxml::node_element,name,0,name_len,0 );
+    }break;
+    case LUA_TNUMBER :
+    {
+        char _buffer[64];
+        size_t val_len = 0;
+        double val = lua_tonumber( L,-1 );
+
+        if ( floor(val) == val ) /* integer */
+        {
+            val_len = snprintf( _buffer,64,"%.0f",val );
+        }
+        else
+        {
+            val_len = snprintf( _buffer,64,"%f",val );
+        }
+        const char *value = doc->allocate_string( _buffer,val_len );
+        child = doc->allocate_node( 
+            rapidxml::node_element,name,value,name_len,val_len );
+    }break;
+    case LUA_TSTRING :
+    {
+        size_t val_len = 0;
+        const char *val = lua_tolstring( L,-1,&val_len );
+        const char *value = doc->allocate_string( val,val_len );
+        child = doc->allocate_node( 
+            rapidxml::node_element,name,value,name_len,val_len );
+    }break;
+    case LUA_TTABLE :
+    {
+        child = doc->allocate_node( rapidxml::node_element,name,0,name_len );
+        if ( encode_node( L,top + 1,doc,child,msg ) < 0 )
+        {
+            lua_settop( L,top );
+            return NULL;
+        }
+    }break;
+    default:
+        lua_settop( L,top );
+        MARK_ERROR( msg,"encode element","unsupport value type" );
+        return NULL;
+    }
+    lua_pop( L,1 ); /* pop value */
+
+    assert( child );
+    lua_pushstring( L,ATTR_KEY );
+    lua_rawget( L,index );
+    int type = lua_type( L,-1 );
+    if ( LUA_TNIL != type ) /* nil means no attribute,do nothing */
+    {
+        if ( LUA_TTABLE != type )
+        {
+            lua_settop( L,top );
+            MARK_ERROR( msg,"encode element","attribute must be a table" );
+            return NULL;
+        }
+
+        lua_pushnil( L );
+        while ( 0 != lua_next( L,-2 ) )
+        {
+            if ( LUA_TSTRING != lua_type( L,-1 ) 
+                || LUA_TSTRING != lua_type( L,-2 ) )
+            {
+                lua_settop( L,top );
+                MARK_ERROR( msg,"encode element",
+                    "all attribute key and value must be string" );
+                return NULL;
+            }
+            size_t key_len = 0;
+            size_t val_len = 0;
+            const char *key = lua_tolstring( L,-2,&key_len );
+            const char *val = lua_tolstring( L,-1,&val_len );
+
+            child->append_attribute( 
+                doc->allocate_attribute( doc->allocate_string( key,key_len ),
+                doc->allocate_string( val,val_len ),key_len,val_len ) );
+
+            lua_pop( L,1 );
+        }
+    }
+    lua_pop( L,1 ); /* pop attribute */
+
+    return child;
+}
+
+int encode_node( lua_State *L,int index,
+    rapidxml::xml_document<> *doc,rapidxml::xml_node<> *node,char *msg )
+{
+    if ( !lua_istable( L,index ) )
+    {
+        MARK_ERROR( msg,"encode node","not a valid table" );
         return -1;
     }
 
-    luaL_checkstack( L,5,"xml encode out of stack" );
+    int top = lua_gettop( L );
+    if ( top > MAX_STACK )
+    {
+        MARK_ERROR( msg,"encode node","stack overflow" );
+        return -1;
+    }
+
+    if ( !lua_checkstack( L,5 ) )
+    {
+        MARK_ERROR( msg,"encode node","out of stack" );
+        return -1;
+    }
 
     lua_pushnil( L );
     while ( 0 != lua_next( L,index ) )
@@ -227,162 +396,48 @@ int encode_node( lua_State *L,int index,rapidxml::xml_document<> *doc,
         /* if type is number or string,this node is data_node */
         switch( lua_type( L,-1 ) )
         {
-            case LUA_TNUMBER :
-            {
-                char _buffer[64];
-                size_t val_len = 0;
-                double val = lua_tonumber( L,-1 );
-
-                if ( floor(val) == val ) /* integer */
-                {
-                    val_len = snprintf( _buffer,64,"%.0f",val );
-                }
-                else
-                {
-                    val_len = snprintf( _buffer,64,"%f",val );
-                }
-                const char *value = doc->allocate_string( _buffer,val_len );
-                child = doc->allocate_node( rapidxml::node_data,0,value,
-                    0,val_len );
-
-                lua_pop( L,1 ); /* pop key */
-                node->append_node( child );
-                child = 0;
-                continue;
-            }break;
-            case LUA_TSTRING :
-            {
-                size_t val_len = 0;
-                const char *val = lua_tolstring( L,-1,&val_len );
-                const char *value = doc->allocate_string( val,val_len );
-                child = doc->allocate_node( rapidxml::node_data,0,value,
-                    0,val_len );
-
-                lua_pop( L,1 ); /* pop key */
-                node->append_node( child );
-                child = 0;
-                continue;
-            }break;
-            case LUA_TTABLE :
-                /* element node,deal with it later */
-                break;
-            default :
-                lua_settop( L,top );
-                MARK_ERROR( msg,"xml encode fail","node must be number,string or table" );
-                return -1;
-        }
-        /* handle a node with name and value */
-        lua_pushstring( L,NAME_KEY );
-        lua_rawget( L,-2 );
-        if ( !lua_isstring( L,-1 ) )
+        case LUA_TNUMBER :
         {
+            char _buffer[64];
+            size_t val_len = 0;
+            double val = lua_tonumber( L,-1 );
+
+            if ( floor(val) == val ) /* integer */
+            {
+                val_len = snprintf( _buffer,64,"%.0f",val );
+            }
+            else
+            {
+                val_len = snprintf( _buffer,64,"%f",val );
+            }
+            const char *value = doc->allocate_string( _buffer,val_len );
+            child = doc->allocate_node( rapidxml::node_data,0,value,0,val_len );
+        }break;
+        case LUA_TSTRING :
+        {
+            size_t val_len = 0;
+            const char *val = lua_tolstring( L,-1,&val_len );
+            const char *value = doc->allocate_string( val,val_len );
+            child = doc->allocate_node( rapidxml::node_data,0,value,0,val_len );
+        }break;
+        case LUA_TTABLE :
+        {
+            child = encode_element( L,top + 2,doc,msg );
+            if ( !child )
+            {
+                lua_settop( L,top );
+                return -1;
+            }
+        }break;
+        default :
             lua_settop( L,top );
-            MARK_ERROR( msg,"xml encode fail","node name must be string" );
+            MARK_ERROR( msg,
+                "encode node","node must be number,string or table" );
             return -1;
         }
-        size_t name_len = 0;
-        const char *pname = lua_tolstring( L,-1,&name_len );
-        /* do't worry about memory leak here,doc.clear() will free all */
-        const char *name = doc->allocate_string( pname,name_len );
-        lua_pop( L,1 ); /* pop name */
-
-        lua_pushstring( L,VALUE_KEY );
-        lua_rawget( L,-2 );
-        switch ( lua_type( L,-1 ) )
-        {
-            case LUA_TNIL :
-                /* childless node,has no value and child node */
-                child = doc->allocate_node( rapidxml::node_element,name,0,
-                name_len,0 );
-                break;
-            case LUA_TNUMBER :
-            {
-                char _buffer[64];
-                size_t val_len = 0;
-                double val = lua_tonumber( L,-1 );
-
-                if ( floor(val) == val ) /* integer */
-                {
-                    val_len = snprintf( _buffer,64,"%.0f",val );
-                }
-                else
-                {
-                    val_len = snprintf( _buffer,64,"%f",val );
-                }
-                const char *value = doc->allocate_string( _buffer,val_len );
-                child = doc->allocate_node( rapidxml::node_element,name,value,
-                    name_len,val_len );
-            }break;
-            case LUA_TSTRING :
-            {
-                size_t val_len = 0;
-                const char *val = lua_tolstring( L,-1,&val_len );
-                const char *value = doc->allocate_string( val,val_len );
-                child = doc->allocate_node( rapidxml::node_element,name,value,
-                    name_len,val_len );
-            }break;
-            case LUA_TTABLE :
-            {
-                child = doc->allocate_node( rapidxml::node_element,name,0,name_len );
-                if ( encode_node( L,lua_gettop(L),doc,child,msg) < 0 )
-                {
-                    lua_settop( L,top );
-                    return -1;
-                }
-            }break;
-            default:
-                lua_settop( L,top );
-                MARK_ERROR( msg,"xml encode fail","unsupport type" );
-                return -1;
-                break;
-        }
-        lua_pop( L,1 ); /* pop value */
 
         assert( child );
-        lua_pushstring( L,ATTR_KEY );
-        lua_rawget( L,-2 );
-        switch ( lua_type( L,-1 ) )
-        {
-            case LUA_TNIL :
-                /* no attribute,do nothing */
-                break;
-            case LUA_TTABLE :
-            {
-                lua_pushnil( L );
-                while ( 0 != lua_next( L,-2 ) )
-                {
-                    if ( LUA_TSTRING != lua_type( L,-1 ) ||
-                        LUA_TSTRING != lua_type( L,-2 ) )
-                    {
-                        lua_settop( L,top );
-                        MARK_ERROR( msg,"xml attribute decode fail",
-                            "all attribute key and value must be string" );
-                        return -1;
-                    }
-                    size_t key_len = 0;
-                    size_t val_len = 0;
-                    const char *key = lua_tolstring( L,-2,&key_len );
-                    const char *val = lua_tolstring( L,-1,&val_len );
-
-                    child->append_attribute( doc->allocate_attribute(
-                        doc->allocate_string( key,key_len ),
-                        doc->allocate_string( val,val_len ),
-                        key_len,val_len
-                    ));
-
-                    lua_pop( L,1 );
-                }
-            }break;
-            default:
-                lua_settop( L,top );
-                MARK_ERROR( msg,"xml encode fail","attribute must be a table" );
-                return -1;
-        }
-        lua_pop( L,1 ); /* pop attribute */
-
-        /* append to parent */
         node->append_node( child );
-        child = 0;
 
         lua_pop( L,1 ); /* pop table value,iterate to next */
     }
@@ -411,15 +466,18 @@ int encode( lua_State *L )
                 doc.allocate_string("xml version=\"1.0\" encoding=\"utf-8\"") );
             doc.append_node( dt );
 
-            if ( encode_node( L,1,&doc,&doc,msg) < 0 )
+            rapidxml::xml_node<> *root = encode_element( L,1,&doc,msg );
+            if ( !root )
             {
                 return_code = -1;
             }
             else
             {
+                doc.append_node( root );
+
                 std::string str;
-                rapidxml::print( std::back_inserter(str), doc,
-                    pretty ? 0 : rapidxml::print_no_indenting );
+                rapidxml::print( std::back_inserter(str),
+                    doc,pretty ? 0 : rapidxml::print_no_indenting );
                 lua_pushstring( L,str.c_str() );
             }
         }
@@ -431,7 +489,7 @@ int encode( lua_State *L )
         catch ( ... )
         {
             return_code = -1;
-            MARK_ERROR( msg,"encode_to_file","unknow error" );
+            MARK_ERROR( msg,"encode","unknow error" );
         }
 
         doc.clear();
@@ -464,16 +522,18 @@ int encode_to_file( lua_State *L )
         try
         {
             /* document type */
-            rapidxml::xml_node<>* dt = doc.allocate_node( rapidxml::node_pi,
+            rapidxml::xml_node<> *dt = doc.allocate_node( rapidxml::node_pi,
                 doc.allocate_string("xml version=\"1.0\" encoding=\"utf-8\"") );
             doc.append_node( dt );
 
-            if ( encode_node( L,1,&doc,&doc,msg) < 0 )
+            rapidxml::xml_node<> *root = encode_element( L,1,&doc,msg);
+            if ( !root )
             {
                 return_code = -1;
             }
             else  /* write to file */
             {
+                doc.append_node( root );
                 std::ofstream out;
                 out.exceptions ( std::ifstream::failbit | std::ifstream::badbit );
                 out.open( path,std::ofstream::out|std::ofstream::trunc );
