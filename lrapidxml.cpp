@@ -549,7 +549,7 @@ int encode_to_file( lua_State *L )
             return_code = -1;
             MARK_ERROR( msg,"memory allocate fail",e.what() );
         }
-        catch (std::ifstream::failure e)
+        catch (const std::ifstream::failure &e)
         {
             return_code = -1;
             MARK_ERROR( msg,"write to file fail",e.what() );
