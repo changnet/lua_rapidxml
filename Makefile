@@ -31,6 +31,6 @@ test:
 	lua test.lua
 
 clean:
-	rm -f *.o $(TARGET_SO) $(TARGET_A)
+	rm -f *.o test.xml $(TARGET_SO) $(TARGET_A)
 
 .PHONY: all clean test

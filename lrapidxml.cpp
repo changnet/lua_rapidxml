@@ -578,7 +578,7 @@ int encode_to_file( lua_State *L )
 
 /* ========================== lua 5.1 start ================================= */
 /* this function was copy from src of lua5.3.1 */
-LUALIB_API void luaL_setfuncs_ex (lua_State *L, const luaL_Reg *l, int nup) {
+void luaL_setfuncs_ex (lua_State *L, const luaL_Reg *l, int nup) {
   luaL_checkstack(L, nup, "too many upvalues");
   for (; l->name != NULL; l++) {  /* fill the table with given functions */
     int i;
